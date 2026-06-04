@@ -5,60 +5,103 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from io import BytesIO
+import hmac
+import hashlib
+import time
+import json
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
 
-print("Starting bot...")
+print("Starting Delta Auto Bot...")
 
 TOKEN = os.getenv("TELEGRAM_TOKEN")
 TD_KEY = os.getenv("TWELVEDATA_API")
+DELTA_KEY = os.getenv("DELTA_API_KEY")
+DELTA_SECRET = os.getenv("DELTA_SECRET")
+CHAT_ID = os.getenv("CHAT_ID")
 
-if not TOKEN:
-    print("ERROR: TELEGRAM_TOKEN missing")
+if not all([TOKEN, TD_KEY, CHAT_ID]):
+    print("ERROR: TELEGRAM_TOKEN, TWELVEDATA_API, CHAT_ID chahiye")
     exit()
-if not TD_KEY:
-    print("ERROR: TWELVEDATA_API missing") 
-    exit()
-
-print("Env variables OK")
 
 SYMBOLS = {
-    "gold": {"td": "XAU/USD", "name": "XAU/USD"},
-    "zec": {"td": "ZECUSD", "name": "ZEC/USD"},
-    "btc": {"td": "BTC/USD", "name": "BTC/USD"},
-    "us100": {"td": "NDX", "name": "NASDAQ-100"}
+    "gold": {"td": "XAU/USD", "name": "XAU/USD", "delta": "GOLDUSD", "qty": 0.1},
+    "btc": {"td": "BTC/USD", "name": "BTC/USD", "delta": "BTCUSD", "qty": 0.001},
+    "luna": {"td": "LUNAUSD", "name": "LUNA/USD", "delta": "LUNAUSD", "qty": 1}
 }
+
+def delta_place_order(product_symbol, side, size, stop_price=None, limit_price=None):
+    if not DELTA_KEY:
+        return "Delta API keys missing"
+    try:
+        timestamp = str(int(time.time()))
+        method = 'POST'
+        path = '/v2/orders'
+        body = {
+            "product_symbol": product_symbol,
+            "size": size,
+            "side": side.lower(),
+            "order_type": "market_order"
+        }
+        if stop_price and limit_price:
+            body["bracket_stop_loss_price"] = str(stop_price)
+            body["bracket_take_profit_price"] = str(limit_price)
+        body_str = json.dumps(body, separators=(',', ':'))
+        signature_data = method + timestamp + path + body_str
+        signature = hmac.new(
+            DELTA_SECRET.encode(),
+            signature_data.encode(),
+            'sha256'
+        ).hexdigest()
+        headers = {
+            'api-key': DELTA_KEY,
+            'timestamp': timestamp,
+            'signature': signature,
+            'Content-Type': 'application/json'
+        }
+        url = f"https://api.delta.exchange{path}"
+        r = requests.post(url, headers=headers, data=body_str, timeout=10).json()
+        return f"Order ID: {r['result']['id']}" if r.get('success') else f"Error: {r.get('error')}"
+    except Exception as e:
+        return f"Exception: {e}"
 
 def get_data(symbol):
     try:
-        # 15min timeframe kar diya - 1:5 ke liye better
-        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=50&apikey={TD_KEY}"
-        r = requests.get(url, timeout=10).json()
+        url = "https://api.twelvedata.com/time_series"
+        params = {
+            "symbol": symbol,
+            "interval": "15min",
+            "outputsize": 50,
+            "apikey": TD_KEY
+        }
+        r = requests.get(url, params=params, timeout=10).json()
         if "values" not in r:
-            print(f"API Error: {r}")
             return None, None
         df = pd.DataFrame(r["values"])
-        df = df.astype({"open": float, "high": float, "low": float, "close": float})
+        df = df.astype({
+            "open": float,
+            "high": float,
+            "low": float,
+            "close": float
+        })
         df = df.iloc[::-1]
         df["ema5"] = df["close"].ewm(span=5).mean()
         df["ema13"] = df["close"].ewm(span=13).mean()
         delta = df["close"].diff()
         gain = (delta.where(delta > 0, 0)).rolling(7).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(7).mean()
-        rs = gain / loss
-        df["rsi"] = 100 - (100 / (1 + rs))
+        df["rsi"] = 100 - (100 / (1 + gain / loss))
         return df.iloc[-1], df
-    except Exception as e:
-        print(f"get_data error: {e}")
+    except:
         return None, None
 
 def make_chart(df, symbol_name):
     plt.style.use("dark_background")
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(df["close"], label="Price", color="white", linewidth=2)
-    ax.plot(df["ema5"], label="EMA5", color="cyan", linewidth=1.5)
-    ax.plot(df["ema13"], label="EMA13", color="yellow", linewidth=1.5)
-    ax.set_title(f"{symbol_name} - 15min SETUP", color="white", fontsize=16)
+    ax.plot(df["ema5"], label="EMA5", color="cyan")
+    ax.plot(df["ema13"], label="EMA13", color="yellow")
+    ax.set_title(f"{symbol_name} - 15min", color="white", fontsize=16)
     ax.legend()
     ax.grid(True, alpha=0.3)
     buf = BytesIO()
@@ -69,57 +112,71 @@ def make_chart(df, symbol_name):
 
 def calc_signal(row, pair):
     price = row["close"]
-    ema5, ema13, rsi = row["ema5"], row["ema13"], row["rsi"]
-    
-    # 15min ke liye SL bade kar diye
-    if pair == "XAU/USD": sl_dist = 6.0      # 5min: 4.0 tha
-    elif pair == "ZEC/USD": sl_dist = 4.0    # 5min: 2.5 tha
-    elif pair == "BTC/USD": sl_dist = 250.0  # 5min: 150.0 tha
-    elif pair == "NASDAQ-100": sl_dist = 40.0 # 5min: 25.0 tha
-    else: sl_dist = 6.0
-    
-    rr_ratio = 5  # 1:5 RR
-    
+    ema5 = row["ema5"]
+    ema13 = row["ema13"]
+    rsi = row["rsi"]
+    sl_dist = {"XAU/USD": 6.0, "BTC/USD": 250.0, "LUNA/USD": 0.015}.get(pair, 6.0)
+    rr = 5
     if ema5 > ema13 and rsi > 55:
-        sl = price - sl_dist
-        tp = price + sl_dist * rr_ratio
-        text = "⚡ {} 15M SETUP BUY\nEntry: {:.2f}\nSL: {:.2f}\nTP: {:.2f}\nRSI: {:.1f} | RR 1:5".format(pair, price, sl, tp, rsi)
-        return text
+        sl = round(price - sl_dist, 4)
+        tp = round(price + sl_dist * rr, 4)
+        return "BUY", price, sl, tp, rsi
     elif ema5 < ema13 and rsi < 45:
-        sl = price + sl_dist
-        tp = price - sl_dist * rr_ratio
-        text = "⚡ {} 15M SETUP SELL\nEntry: {:.2f}\nSL: {:.2f}\nTP: {:.2f}\nRSI: {:.1f} | RR 1:5".format(pair, price, sl, tp, rsi)
-        return text
-    else:
-        text = "⏳ {} NO SETUP\nPrice: {:.2f}\nEMA5: {:.2f} | EMA13: {:.2f} | RSI: {:.1f}".format(pair, price, ema5, ema13, rsi)
-        return text
+        sl = round(price + sl_dist, 4)
+        tp = round(price - sl_dist * rr, 4)
+        return "SELL", price, sl, tp, rsi
+    return None, price, 0, 0, rsi
 
-async def send_signal(update: Update, context: ContextTypes.DEFAULT_TYPE, pair_key):
-    symbol_info = SYMBOLS[pair_key]
-    row, df = get_data(symbol_info["td"])
+async def auto_check(context: ContextTypes.DEFAULT_TYPE):
+    print("Running auto check...")
+    for key, info in SYMBOLS.items():
+        row, df = get_data(info["td"])
+        if row is None:
+            continue
+        signal, price, sl, tp, rsi = calc_signal(row, info["name"])
+        if signal:
+            text = f"🤖 AUTO SIGNAL\n⚡ {info['name']} {signal}\n"
+            text += f"Entry: {price:.4f}\nSL: {sl} | TP: {tp}\n"
+            text += f"RSI: {rsi:.1f} | RR 1:5"
+            order = delta_place_order(info["delta"], signal, info["qty"], sl, tp)
+            text += f"\n\nDelta: {order}"
+            chart = make_chart(df.tail(30), info["name"])
+            await context.bot.send_photo(chat_id=CHAT_ID, photo=chart, caption=text)
+
+async def manual_signal(update: Update, context: ContextTypes.DEFAULT_TYPE, pair_key):
+    info = SYMBOLS[pair_key]
+    row, df = get_data(info["td"])
     if row is None:
-        await update.message.reply_text("Error: Data nahi mila. API key ya symbol check kar.")
+        await update.message.reply_text("Data error")
         return
-    signal_text = calc_signal(row, symbol_info["name"])
-    chart = make_chart(df.tail(30), symbol_info["name"])
-    await update.message.reply_photo(photo=chart, caption=signal_text)
+    signal, price, sl, tp, rsi = calc_signal(row, info["name"])
+    if signal:
+        text = f"⚡ {info['name']} {signal}\nEntry: {price:.4f}\nSL: {sl} | TP: {tp}\nRSI: {rsi:.1f}"
+    else:
+        text = f"⏳ {info['name']} NO SETUP\nPrice: {price:.4f} | RSI: {rsi:.1f}"
+    chart = make_chart(df.tail(30), info["name"])
+    await update.message.reply_photo(photo=chart, caption=text)
 
-async def gold(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_signal(update, context, "gold")
-async def zec(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_signal(update, context, "zec")
-async def btc(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_signal(update, context, "btc")
-async def us100(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_signal(update, context, "us100")
+async def gold(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await manual_signal(update, context, "gold")
+
+async def btc(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await manual_signal(update, context, "btc")
+
+async def luna(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await manual_signal(update, context, "luna")
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("✅ GoldZec 15M Bot Online\nCommands:\n/gold\n/zec\n/btc\n/us100\n\n15min TF | RR 1:5")
+    await update.message.reply_text("✅ Delta Auto Bot Online\n/gold /btc /luna\n\nAuto check har 15 min mein chalega")
 
 def main():
-    print("Building app...")
     app = ApplicationBuilder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("gold", gold))
-    app.add_handler(CommandHandler("zec", zec))
     app.add_handler(CommandHandler("btc", btc))
-    app.add_handler(CommandHandler("us100", us100))
-    print("Bot polling...")
+    app.add_handler(CommandHandler("luna", luna))
+    app.job_queue.run_repeating(auto_check, interval=900, first=10)
+    print("Bot started with auto-check")
     app.run_polling()
 
 if __name__ == "__main__":
