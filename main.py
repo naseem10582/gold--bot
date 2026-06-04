@@ -31,7 +31,8 @@ SYMBOLS = {
 
 def get_data(symbol):
     try:
-        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=50&apikey={TD_KEY}"
+        # 15min timeframe kar diya - 1:5 ke liye better
+        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=50&apikey={TD_KEY}"
         r = requests.get(url, timeout=10).json()
         if "values" not in r:
             print(f"API Error: {r}")
@@ -57,7 +58,7 @@ def make_chart(df, symbol_name):
     ax.plot(df["close"], label="Price", color="white", linewidth=2)
     ax.plot(df["ema5"], label="EMA5", color="cyan", linewidth=1.5)
     ax.plot(df["ema13"], label="EMA13", color="yellow", linewidth=1.5)
-    ax.set_title(f"{symbol_name} - 5min SCALP", color="white", fontsize=16)
+    ax.set_title(f"{symbol_name} - 15min SETUP", color="white", fontsize=16)
     ax.legend()
     ax.grid(True, alpha=0.3)
     buf = BytesIO()
@@ -70,27 +71,27 @@ def calc_signal(row, pair):
     price = row["close"]
     ema5, ema13, rsi = row["ema5"], row["ema13"], row["rsi"]
     
-    # SL distances
-    if pair == "XAU/USD": sl_dist = 4.0
-    elif pair == "ZEC/USD": sl_dist = 2.5
-    elif pair == "BTC/USD": sl_dist = 150.0
-    elif pair == "NASDAQ-100": sl_dist = 25.0
-    else: sl_dist = 4.0
+    # 15min ke liye SL bade kar diye
+    if pair == "XAU/USD": sl_dist = 6.0      # 5min: 4.0 tha
+    elif pair == "ZEC/USD": sl_dist = 4.0    # 5min: 2.5 tha
+    elif pair == "BTC/USD": sl_dist = 250.0  # 5min: 150.0 tha
+    elif pair == "NASDAQ-100": sl_dist = 40.0 # 5min: 25.0 tha
+    else: sl_dist = 6.0
     
     rr_ratio = 5  # 1:5 RR
     
     if ema5 > ema13 and rsi > 55:
         sl = price - sl_dist
         tp = price + sl_dist * rr_ratio
-        text = "⚡ {} 5M SCALP BUY\nEntry: {:.2f}\nSL: {:.2f}\nTP: {:.2f}\nRSI: {:.1f} | RR 1:5".format(pair, price, sl, tp, rsi)
+        text = "⚡ {} 15M SETUP BUY\nEntry: {:.2f}\nSL: {:.2f}\nTP: {:.2f}\nRSI: {:.1f} | RR 1:5".format(pair, price, sl, tp, rsi)
         return text
     elif ema5 < ema13 and rsi < 45:
         sl = price + sl_dist
         tp = price - sl_dist * rr_ratio
-        text = "⚡ {} 5M SCALP SELL\nEntry: {:.2f}\nSL: {:.2f}\nTP: {:.2f}\nRSI: {:.1f} | RR 1:5".format(pair, price, sl, tp, rsi)
+        text = "⚡ {} 15M SETUP SELL\nEntry: {:.2f}\nSL: {:.2f}\nTP: {:.2f}\nRSI: {:.1f} | RR 1:5".format(pair, price, sl, tp, rsi)
         return text
     else:
-        text = "⏳ {} NO SCALP\nPrice: {:.2f}\nEMA5: {:.2f} | EMA13: {:.2f} | RSI: {:.1f}".format(pair, price, ema5, ema13, rsi)
+        text = "⏳ {} NO SETUP\nPrice: {:.2f}\nEMA5: {:.2f} | EMA13: {:.2f} | RSI: {:.1f}".format(pair, price, ema5, ema13, rsi)
         return text
 
 async def send_signal(update: Update, context: ContextTypes.DEFAULT_TYPE, pair_key):
@@ -105,4 +106,21 @@ async def send_signal(update: Update, context: ContextTypes.DEFAULT_TYPE, pair_k
 
 async def gold(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_signal(update, context, "gold")
 async def zec(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_signal(update, context, "zec")
-async def btc(update: Update, context
+async def btc(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_signal(update, context, "btc")
+async def us100(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_signal(update, context, "us100")
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("✅ GoldZec 15M Bot Online\nCommands:\n/gold\n/zec\n/btc\n/us100\n\n15min TF | RR 1:5")
+
+def main():
+    print("Building app...")
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("gold", gold))
+    app.add_handler(CommandHandler("zec", zec))
+    app.add_handler(CommandHandler("btc", btc))
+    app.add_handler(CommandHandler("us100", us100))
+    print("Bot polling...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
