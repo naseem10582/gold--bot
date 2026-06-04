@@ -91,4 +91,30 @@ def calc_signal(row, pair):
     sl_dist = {"XAU/USD": 6.0, "BTC/USD": 250.0, "LUNA/USD": 0.015}.get(pair, 6.0)
     rr = 5
     if ema5 > ema13 and rsi > 55:
-        return "BUY", price, round(price - sl_dist, 4), round(price + sl_dist * rr
+        return "BUY", price, round(price - sl_dist, 4), round(price + sl_dist * rr, 4), rsi
+    elif ema5 < ema13 and rsi < 45:
+        return "SELL", price, round(price + sl_dist, 4), round(price - sl_dist * rr, 4), rsi
+    return None, price, 0, 0, rsi
+
+async def auto_check(context: ContextTypes.DEFAULT_TYPE):
+    print("Running auto check...")
+    for key, info in SYMBOLS.items():
+        row, df = get_data(info["td"])
+        if row is None: continue
+        signal, price, sl, tp, rsi = calc_signal(row, info["name"])
+        if signal:
+            text = f"🤖 AUTO SIGNAL\n⚡ {info['name']} {signal}\nEntry: {price:.4f}\nSL: {sl} | TP: {tp}\nRSI: {rsi:.1f} | RR 1:5"
+            order = delta_place_order(info["delta"], signal, info["qty"], sl, tp)
+            text += f"\n\nDelta: {order}"
+            chart = make_chart(df.tail(30), info["name"])
+            await context.bot.send_photo(chat_id=CHAT_ID, photo=chart, caption=text)
+
+async def manual_signal(update: Update, context: ContextTypes.DEFAULT_TYPE, pair_key):
+    info = SYMBOLS[pair_key]
+    row, df = get_data(info["td"])
+    if row is None:
+        await update.message.reply_text("Data error")
+        return
+    signal, price, sl, tp, rsi = calc_signal(row, info["name"])
+    if signal:
+        text = f"⚡ {info['name']} {signal}\nEntry:
