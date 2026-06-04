@@ -18,13 +18,11 @@ TOKEN = os.getenv("TELEGRAM_TOKEN")
 TD_KEY = os.getenv("TWELVEDATA_API")
 DELTA_KEY = os.getenv("DELTA_API_KEY")
 DELTA_SECRET = os.getenv("DELTA_SECRET")
-CHAT_ID = os.getenv("CHAT_ID")  # Tera Telegram ID - @userinfobot se nikal
+CHAT_ID = os.getenv("CHAT_ID")
 
 if not all([TOKEN, TD_KEY, CHAT_ID]):
     print("ERROR: TELEGRAM_TOKEN, TWELVEDATA_API, CHAT_ID chahiye")
     exit()
-
-print("All env vars OK")
 
 SYMBOLS = {
     "gold": {"td": "XAU/USD", "name": "XAU/USD", "delta": "GOLDUSD", "qty": 0.1}, 
@@ -78,4 +76,19 @@ def make_chart(df, symbol_name):
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(df["close"], label="Price", color="white", linewidth=2)
     ax.plot(df["ema5"], label="EMA5", color="cyan")
-    ax.plot(df["ema13"], label="EMA13
+    ax.plot(df["ema13"], label="EMA13", color="yellow")
+    ax.set_title(f"{symbol_name} - 15min", color="white", fontsize=16)
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    buf = BytesIO()
+    plt.savefig(buf, format="png", bbox_inches="tight", dpi=100)
+    buf.seek(0)
+    plt.close()
+    return buf
+
+def calc_signal(row, pair):
+    price, ema5, ema13, rsi = row["close"], row["ema5"], row["ema13"], row["rsi"]
+    sl_dist = {"XAU/USD": 6.0, "BTC/USD": 250.0, "LUNA/USD": 0.015}.get(pair, 6.0)
+    rr = 5
+    if ema5 > ema13 and rsi > 55:
+        return "BUY", price, round(price - sl_dist, 4), round(price + sl_dist * rr
