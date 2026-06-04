@@ -19,7 +19,7 @@ SYMBOLS = {
 def get_data(symbol):
     url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=5min&outputsize=50&apikey={TD_KEY}"
     r = requests.get(url).json()
-    if "values" not in r: 
+    if "values" not in r:
         return None, None
     df = pd.DataFrame(r["values"])
     df = df.astype({"open": float, "high": float, "low": float, "close": float})
@@ -35,60 +35,6 @@ def get_data(symbol):
 
 def make_chart(df, symbol_name):
     plt.style.use('dark_background')
-    fig, ax = plt.subplots(figsize=(10,6))
+    fig, ax = plt.subplots(figsize=(10, 6))
     ax.plot(df['close'], label='Price', color='white', linewidth=2)
-    ax.plot(df['ema5'], label='EMA5', color='cyan', linewidth=1.5)
-    ax.plot(df['ema13'], label='EMA13', color='yellow', linewidth=1.5)
-    ax.set_title(f'{symbol_name} - 5min SCALP', color='white', fontsize=16)
-    ax.legend()
-    ax.grid(True, alpha=0.3)
-    buf = BytesIO()
-    plt.savefig(buf, format='png', bbox_inches='tight', dpi=100)
-    buf.seek(0)
-    plt.close()
-    return buf
-
-def calc_signal(row, pair):
-    price = row['close']
-    ema5, ema13, rsi = row['ema5'], row['ema13'], row['rsi']
-
-    if pair == "XAU/USD":
-        sl_dist = 2.0
-    elif pair == "ZEC/USD":
-        sl_dist = 1.0
-    elif pair == "BTC/USD":
-        sl_dist = 80.0
-    elif pair == "NASDAQ-100":
-        sl_dist = 12.0
-    else:
-        sl_dist = 2.0
-
-    if ema5 > ema13 and rsi > 55:
-        sl = price - sl_dist
-        tp1 = price + sl_dist
-        tp2 = price + sl_dist * 2
-        return f"⚡ {pair} 5M SCALP BUY\nEntry: {price:.2f}\nSL: {sl:.2f}\nTP1: {tp1:.2f}\nTP2: {tp2:.2f}\nRSI: {rsi:.1f} | RR 1:2"
-
-    elif ema5 < ema13 and rsi < 45:
-        sl = price + sl_dist
-        tp1 = price - sl_dist
-        tp2 = price - 2 * sl_dist
-        return f"⚡ {pair} 5M SCALP SELL\nEntry: {price:.2f}\nSL: {sl:.2f}\nTP1: {tp1:.2f}\nTP2: {tp2:.2f}\nRSI: {rsi:.1f} | RR 1:2"
-
-    else:
-        return f"⏳ {pair} NO SCALP\nPrice: {price:.2f}\nEMA5: {ema5:.2f} | EMA13: {ema13:.2f} | RSI: {rsi:.1f}"
-
-async def send_signal(update: Update, context: ContextTypes.DEFAULT_TYPE, pair_key):
-    symbol_info = SYMBOLS[pair_key]
-    row, df = get_data(symbol_info["td"])
-    if row is None:
-        await update.message.reply_text("Error: Data nahi mila. API limit check kar.")
-        return
-
-    signal_text = calc_signal(row, symbol_info["name"])
-    chart = make_chart(df.tail(30), symbol_info["name"])
-    await update.message.reply_photo(photo=chart, caption=signal_text)
-
-async def gold(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_signal(update, context, "gold")
-async def zec(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_signal(update, context, "zec")
-async def btc(update: Update
+    ax.plot(df['ema5
