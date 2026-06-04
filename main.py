@@ -31,7 +31,8 @@ SYMBOLS = {
 }
 
 def delta_place_order(product_symbol, side, size, stop_price=None, limit_price=None):
-    if not DELTA_KEY: return "Delta API keys missing"
+    if not DELTA_KEY: 
+        return "Delta API keys missing"
     try:
         timestamp = str(int(time.time()))
         method = 'POST'
@@ -60,7 +61,8 @@ def get_data(symbol):
     try:
         url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=50&apikey={TD_KEY}"
         r = requests.get(url, timeout=10).json()
-        if "values" not in r: return None, None
+        if "values" not in r: 
+            return None, None
         df = pd.DataFrame(r["values"]).astype({"open": float, "high": float, "low": float, "close": float}).iloc[::-1]
         df["ema5"] = df["close"].ewm(span=5).mean()
         df["ema13"] = df["close"].ewm(span=13).mean()
@@ -69,7 +71,8 @@ def get_data(symbol):
         loss = (-delta.where(delta < 0, 0)).rolling(7).mean()
         df["rsi"] = 100 - (100 / (1 + gain / loss))
         return df.iloc[-1], df
-    except: return None, None
+    except: 
+        return None, None
 
 def make_chart(df, symbol_name):
     plt.style.use("dark_background")
@@ -100,7 +103,8 @@ async def auto_check(context: ContextTypes.DEFAULT_TYPE):
     print("Running auto check...")
     for key, info in SYMBOLS.items():
         row, df = get_data(info["td"])
-        if row is None: continue
+        if row is None: 
+            continue
         signal, price, sl, tp, rsi = calc_signal(row, info["name"])
         if signal:
             text = f"🤖 AUTO SIGNAL\n⚡ {info['name']} {signal}\nEntry: {price:.4f}\nSL: {sl} | TP: {tp}\nRSI: {rsi:.1f} | RR 1:5"
@@ -113,8 +117,4 @@ async def manual_signal(update: Update, context: ContextTypes.DEFAULT_TYPE, pair
     info = SYMBOLS[pair_key]
     row, df = get_data(info["td"])
     if row is None:
-        await update.message.reply_text("Data error")
-        return
-    signal, price, sl, tp, rsi = calc_signal(row, info["name"])
-    if signal:
-        text = f"⚡ {info['name']} {signal}\nEntry:
+       
