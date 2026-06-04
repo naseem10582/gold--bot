@@ -17,7 +17,7 @@ if not TOKEN:
     print("ERROR: TELEGRAM_TOKEN missing")
     exit()
 if not TD_KEY:
-    print("ERROR: TWELVEDATA_API missing")
+    print("ERROR: TWELVEDATA_API missing") 
     exit()
 
 print("Env variables OK")
@@ -42,4 +42,5 @@ def get_data(symbol):
         df["ema5"] = df["close"].ewm(span=5).mean()
         df["ema13"] = df["close"].ewm(span=13).mean()
         delta = df["close"].diff()
-        gain = (delta.where(delta
+        gain = (delta.where(delta > 0, 0)).rolling(7).mean()
+        loss = (-delta.where(delta < 0
