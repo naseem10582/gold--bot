@@ -25,13 +25,13 @@ if not all([TOKEN, TD_KEY, CHAT_ID]):
     exit()
 
 SYMBOLS = {
-    "gold": {"td": "XAU/USD", "name": "XAU/USD", "delta": "GOLDUSD", "qty": 0.1}, 
+    "gold": {"td": "XAU/USD", "name": "XAU/USD", "delta": "GOLDUSD", "qty": 0.1},
     "btc": {"td": "BTC/USD", "name": "BTC/USD", "delta": "BTCUSD", "qty": 0.001},
     "luna": {"td": "LUNAUSD", "name": "LUNA/USD", "delta": "LUNAUSD", "qty": 1}
 }
 
 def delta_place_order(product_symbol, side, size, stop_price=None, limit_price=None):
-    if not DELTA_KEY: 
+    if not DELTA_KEY:
         return "Delta API keys missing"
     try:
         timestamp = str(int(time.time()))
@@ -46,11 +46,19 @@ def delta_place_order(product_symbol, side, size, stop_price=None, limit_price=N
         if stop_price and limit_price:
             body["bracket_stop_loss_price"] = str(stop_price)
             body["bracket_take_profit_price"] = str(limit_price)
-        
         body_str = json.dumps(body, separators=(',', ':'))
         signature_data = method + timestamp + path + body_str
-        signature = hmac.new(DELTA_SECRET.encode(), signature_data.encode(), 'sha256').hexdigest()
-        headers = {'api-key': DELTA_KEY, 'timestamp': timestamp, 'signature': signature, 'Content-Type': 'application/json'}
+        signature = hmac.new(
+            DELTA_SECRET.encode(),
+            signature_data.encode(),
+            'sha256'
+        ).hexdigest()
+        headers = {
+            'api-key': DELTA_KEY,
+            'timestamp': timestamp,
+            'signature': signature,
+            'Content-Type': 'application/json'
+        }
         url = f"https://api.delta.exchange{path}"
         r = requests.post(url, headers=headers, data=body_str, timeout=10).json()
         return f"Order ID: {r['result']['id']}" if r.get('success') else f"Error: {r.get('error')}"
@@ -59,8 +67,21 @@ def delta_place_order(product_symbol, side, size, stop_price=None, limit_price=N
 
 def get_data(symbol):
     try:
-        url = f"https://api.twelvedata.com/time_series?symbol={symbol}&interval=15min&outputsize=50&apikey={TD_KEY}"
-        r = requests.get(url, timeout=10).json()
-        if "values" not in r: 
+        url = "https://api.twelvedata.com/time_series"
+        params = {
+            "symbol": symbol,
+            "interval": "15min",
+            "outputsize": 50,
+            "apikey": TD_KEY
+        }
+        r = requests.get(url, params=params, timeout=10).json()
+        if "values" not in r:
             return None, None
-        df = pd.DataFrame(r["values"]).astype({"open": float, "high
+        df = pd.DataFrame(r["values"])
+        df = df.astype({
+            "open": float,
+            "high": float,
+            "low": float,
+            "close": float
+        })
+        df
